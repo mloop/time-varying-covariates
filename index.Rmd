@@ -1,0 +1,143 @@
+---
+title: "Time-varying covariates"
+author: "Matthew Shane Loop, PhD"
+date: '`r Sys.Date()`'
+output:
+  xaringan::moon_reader:
+    lib_dir: libs
+    css: xaringan-themer.css
+    nature:
+      highlightStyle: github
+      highlightLines: true
+      countIncrementalSlides: false
+---
+
+```{r setup, include=FALSE}
+options(htmltools.dir.version = FALSE)
+knitr::opts_chunk$set(echo=F, message=F, warning=F)
+```
+
+```{r xaringan-themer, include=FALSE}
+library(xaringanthemer)
+xaringanthemer::write_xaringan_theme(
+  background_color = "#272822",
+  text_color = "#fff",
+  header_color = "#fff",
+  code_font_family = "Fira Code",
+  code_font_url    = "https://cdn.rawgit.com/tonsky/FiraCode/1.204/distr/fira_code.css",
+  text_font_size = '42px',
+  header_h1_font_size = '72px',
+  header_h2_font_size = '55px',
+  padding	= "0.5em 0.5em 0.5em 0.5em",
+  code_font_size = "0.6em",
+  text_slide_number_font_size = "0.5em",
+  text_slide_number_color = "#fff"
+)
+
+library(survival)
+library(tidyverse)
+library(survminer)
+```
+
+# Sometimes people change treatment status when following them for an outcome
+
+Fill a prescription  
+Receive a transplant  
+Develop a risk factor  
+
+--
+
+# Not accounting for that change can create bias
+
+---
+
+# Stanford heart transplant study
+.pull-left[
+* 34 participants in original study
+* 20 received heart transplant, 14 did not
+* outcome was survival
+* showed a massive benefit
+]
+
+.pull-right[
+```{r}
+knitr::include_graphics("figs/stanford_paper.png")
+```
+
+]
+
+---
+```{r, dpi=300, out.height='450px', fig.align='center', fig.width=7, fig.height=5, echo=T}
+fit <- surv_fit(Surv(futime, fustat) ~ transplant, 
+                data = jasa)
+survminer::ggsurvplot(fit, palette = "jco")
+```
+
+
+---
+
+class: middle
+
+# They did not consider that some patients never received a transplant because they died before they could get one.  
+
+# Causes *immortal time bias*
+
+---
+
+# Time-varying covariates solve this problem
+
+1. Create a dataset that reflects these changes
+2. Fit a usual survival curve
+3. Adjust for covariates using a standard Cox model, *adjusting for correlated times within a person*
+
+---
+
+```{r}
+jasa %>%
+  dplyr::select(transplant, futime, fustat) %>%
+  arrange(futime) %>%
+  as_tibble()
+```
+
+---
+
+```{r}
+heart %>%
+  as_tibble() %>%
+  select(id, start, stop, transplant, event)
+```
+
+---
+```{r, dpi=300, out.height='450px', fig.align='center', fig.width=7, fig.height=5, echo=T}
+fit <- surv_fit(Surv(futime, fustat) ~ transplant, 
+                data = jasa)
+survminer::ggsurvplot(fit, palette = "jco")
+```
+
+---
+
+```{r, dpi=300, out.height='450px', fig.align='center', fig.width=7, fig.height=5, echo=TRUE}
+fit_tv <- survfit(Surv(start, stop, event) ~ transplant, 
+                  id = id, data = heart)
+ggsurvplot(fit_tv, palette = "jco")
+```
+
+---
+```{r, echo=T}
+fit_cox <- coxph(Surv(start, stop, event) ~ transplant + surgery, 
+                  id = id, data = heart)
+```
+
+```{r}
+broom::tidy(fit_cox) %>%
+  select(term, estimate, robust.se) %>%
+  mutate(hr = paste0(round(exp(estimate), digits = 2), " (", round(exp(estimate - 2 * robust.se), digits = 2), ", ", round(exp(estimate + 2 * robust.se), digits = 2), ")", sep = ""))
+```
+
+---
+
+# Takeaways
+
+* Not allowing for time-varying treatments can bias your results
+* That bias can have really meaningful consequences in studies you are doing
+* Structuring the dataset correctly allows you to fit your usual models with *minimal* modifications
